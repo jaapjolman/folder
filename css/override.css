@@ -1,0 +1,23 @@
+/* Please don't override core styles... */
+.item
+{
+	height: inherit !important;
+}
+
+/* The center pane */
+#center-pane
+{
+	height: 450px !important;
+	width: 70% !important;
+	float: left;
+}
+
+/* The right-pane */
+#right-pane
+{
+	height: 450px !important;
+	max-height: 450px;
+	width: 27% !important;
+	overflow: hidden;
+	float: right;
+}

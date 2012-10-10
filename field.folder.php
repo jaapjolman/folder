@@ -167,7 +167,7 @@ class Field_folder
 		
 		// Get fields
 		$applicable_fields = $this->CI->db->select('id, field_name')
-			->where('field_namespace = "streams" AND (field_type = "text" OR field_type = "choice") ', null, false)
+			->where('field_namespace = "streams"', null, false)
 			->get('data_fields')
 			->result();
 
@@ -218,6 +218,7 @@ class Field_folder
 		$naming_field_ids 		= array();
 		$naming_field_slugs		= array();
 		$naming_field_values	= array();
+		$naming_field_types		= array();
 		
 		$folder_name					= '';
 		$folder_slug					= '';
@@ -225,34 +226,60 @@ class Field_folder
 		// Get the IDs of the fields to use for naming
 		$naming_field_ids = explode(',', $field_params->field_data['naming_format']);
 		
-		// Get field slugs from IDs
+		// Populate the naming_field arrays
 		foreach($naming_field_ids as $id):
 			
 			// return the $field per id
-			if ($field = $this->CI->fields_m->get_field($id)) $naming_field_slugs[] = $field->field_slug; // Only save the slug
-			
-		endforeach;
-		
-		// Now get the values
-		foreach($naming_field_slugs as $slug):
-			
-			// Get the value from the field_values submitted in the form
-			if (isset($field_values[$slug]) && $field_values[$slug] != '') $naming_field_values[] = $field_values[$slug];
+			if ( $field = $this->CI->fields_m->get_field($id) )
+			{
+				$naming_field_slugs[] = $field->field_slug;
+				$naming_field_types[] = $field->field_type;
+				
+				if ( isset($field_values[$slug]) && $field_values[$slug] != '' )
+				{
+					$naming_field_values[] = $field_values[$field->field_slug];
+				}
+			}
 			
 		endforeach;
 		
 		// If none of the fields exist anymore, quit
 		if(empty($naming_field_slugs)) return FALSE;
 		
-		// Make the folder name and slug
+		// Format the odd field_types
 		foreach($naming_field_values as $index=>$value):
+		
+			switch($naming_field_types[$index]){
 			
-			$folder_name .= ($index==0?'':' ') . $value;	// Add spaces between too
+				case 'user':
+					$user = $this->CI->ion_auth->get_user((int) $value);
+					
+					if($user)
+					{
+						$value = $user->display_name;
+					}
+					
+					break;
+				case 'choice':
+					
+					break;
+			}
+			
+			$naming_field_values[$index] = $value;
 			
 		endforeach;
 		
+		// Make the folder name and slug
+		$folder_name = implode(' ',$naming_field_values);
+		
 		// _strtoslug that betch
 		$folder_slug = self::_strtoslug($folder_name);
+		
+		if(strlen($folder_name) > 100)
+		{
+			$folder_name = substr($folder_name,0,95).'...';
+			$folder_slug = substr($folder_slug,0,95).'...';
+		}
 		
 		// Do we need to create a folder?
 		if( $field_value == '--NONE--')

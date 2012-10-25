@@ -235,7 +235,7 @@ class Field_folder
 				$naming_field_slugs[] = $field->field_slug;
 				$naming_field_types[] = $field->field_type;
 				
-				if ( isset($field_values[$slug]) && $field_values[$slug] != '' )
+				if ( isset($field_values[$field->field_slug]) && $field_values[$field->field_slug] != '' )
 				{
 					$naming_field_values[] = $field_values[$field->field_slug];
 				}

@@ -36,7 +36,7 @@ class Field_folder
 	 * @access	public
 	 * @return	void
 	 */
-	public function event()
+	public function event($field)
 	{
 
 		// Load up requirements
@@ -64,7 +64,7 @@ class Field_folder
 				pyro.lang.height = '".lang('files:height')."';
 				pyro.lang.ratio = '".lang('files:ratio')."';
 				pyro.lang.full_size = '".lang('files:full_size')."';
-				pyro.lang.cancel = '".lang('buttons.cancel')."';
+				pyro.lang.cancel = '".lang('buttons:cancel')."';
 				pyro.lang.synchronization_started = '".lang('files:synchronization_started')."';
 				pyro.lang.untitled_folder = '".lang('files:untitled_folder')."';
 				pyro.lang.exceeds_server_setting = '".lang('files:exceeds_server_setting')."';
@@ -73,8 +73,11 @@ class Field_folder
 				pyro.files.max_size_possible = '".Files::$max_size_possible."';
 				pyro.files.max_size_allowed = '".Files::$max_size_allowed."';
 				pyro.files.valid_extensions = '/".trim($allowed_extensions, '|')."$/i';
-				pyro.lang.file_type_not_allowed = '".lang('files:file_type_not_allowed')."';
-				pyro.lang.new_folder_name = '".lang('files:new_folder_name')."';
+				pyro.lang.file_type_not_allowed = '".addslashes(lang('files:file_type_not_allowed'))."';
+				pyro.lang.new_folder_name = '".addslashes(lang('files:new_folder_name'))."';
+				pyro.lang.alt_attribute = '".addslashes(lang('files:alt_attribute'))."';
+
+				pyro.files.initial_folder_contents = '".(empty($field->value) ? 0 : $field->value)."';
 			</script>");
 
 
@@ -112,6 +115,7 @@ class Field_folder
 		$data['folders'] = $this->CI->file_folders_m->count_by('parent_id', 0);
 		$data['locations'] = array_combine(Files::$providers, Files::$providers);
 		$data['folder_tree'] = Files::folder_tree();
+		$data['folder_id'] = $data['value'];
 
 		$path_check = Files::check_dir(Files::$path);
 
@@ -120,7 +124,14 @@ class Field_folder
 			$data['messages'] = array('error' => $path_check['message']);
 		}
 
-		return $this->CI->type->load_view('folder', 'index', $data);
+		if ( empty($data['value']) )
+		{
+			return form_hidden($data['form_slug'], '--NONE--').lang('streams.folder.save_first');
+		}
+		
+		$html = $this->CI->load->view('files/admin/index', $data, true);
+
+		return $html;
 	}
 	
 	// --------------------------------------------------------------------------
@@ -167,7 +178,7 @@ class Field_folder
 		
 		// Get fields
 		$applicable_fields = $this->CI->db->select('id, field_name')
-			->where('field_namespace = "streams"', null, false)
+			->where('field_namespace = "streams" AND (field_type = "text" OR field_type = "choice") ', null, false)
 			->get('data_fields')
 			->result();
 
@@ -218,7 +229,6 @@ class Field_folder
 		$naming_field_ids 		= array();
 		$naming_field_slugs		= array();
 		$naming_field_values	= array();
-		$naming_field_types		= array();
 		
 		$folder_name					= '';
 		$folder_slug					= '';
@@ -226,60 +236,37 @@ class Field_folder
 		// Get the IDs of the fields to use for naming
 		$naming_field_ids = explode(',', $field_params->field_data['naming_format']);
 		
-		// Populate the naming_field arrays
+		// Get field slugs from IDs
 		foreach($naming_field_ids as $id):
 			
 			// return the $field per id
-			if ( $field = $this->CI->fields_m->get_field($id) )
-			{
-				$naming_field_slugs[] = $field->field_slug;
-				$naming_field_types[] = $field->field_type;
-				
-				if ( isset($field_values[$field->field_slug]) && $field_values[$field->field_slug] != '' )
-				{
-					$naming_field_values[] = $field_values[$field->field_slug];
-				}
-			}
+			if ($field = $this->CI->fields_m->get_field($id)) $naming_field_slugs[] = $field->field_slug; // Only save the slug
+			
+		endforeach;
+		
+		// Now get the values
+		foreach($naming_field_slugs as $slug):
+			
+			// Get the value from the field_values submitted in the form
+			if (isset($field_values[$slug]) && $field_values[$slug] != '') $naming_field_values[] = $field_values[$slug];
 			
 		endforeach;
 		
 		// If none of the fields exist anymore, quit
 		if(empty($naming_field_slugs)) return FALSE;
 		
-		// Format the odd field_types
+		// Make the folder name and slug
 		foreach($naming_field_values as $index=>$value):
-		
-			switch($naming_field_types[$index]){
 			
-				case 'user':
-					$user = $this->CI->ion_auth->get_user((int) $value);
-					
-					if($user)
-					{
-						$value = $user->display_name;
-					}
-					
-					break;
-				case 'choice':
-					
-					break;
-			}
-			
-			$naming_field_values[$index] = $value;
+			$folder_name .= ($index==0?'':' ') . $value;	// Add spaces between too
 			
 		endforeach;
 		
-		// Make the folder name and slug
-		$folder_name = implode(' ',$naming_field_values);
-		
 		// _strtoslug that betch
 		$folder_slug = self::_strtoslug($folder_name);
-		
-		if(strlen($folder_name) > 100)
-		{
-			$folder_name = substr($folder_name,0,95).'...';
-			$folder_slug = substr($folder_slug,0,95).'...';
-		}
+
+		// Is it valid?
+		if ( $folder_slug === false or $folder_slug == '-1' or empty($folder_slug) ) return false;
 		
 		// Do we need to create a folder?
 		if( $field_value == '--NONE--')
@@ -446,36 +433,10 @@ class Field_folder
 				
 				$c = 0;
 
-				foreach($files as $file)
+				foreach($files as $i=>$file)
 				{
-					
-					// Copy
-					$out[$c] = (array) $file;
-					
-					// Add some nice helpers
-					$out[$c]['full_path'] 					= 'uploads/' . SITE_REF . '/files/' . $file->filename;
-					$out[$c]['absolute_path'] 				= base_url().'uploads/' . SITE_REF . '/files/' . $file->filename;
-
-					$out[$c]['csv_full_path'] 				= ($c==0?'':',').'uploads/' . SITE_REF . '/files/' . $file->filename;
-					$out[$c]['csv_absolute_path'] 			= ($c==0?'':',').base_url('uploads/' . SITE_REF . '/files/' . $file->filename);
-					
-					$out[$c]['thumb_full_path'] 			= 'files/thumb/' . $file->id;
-					$out[$c]['thumb_absolute_path'] 		= base_url('files/thumb/' . $file->id);
-
-					$out[$c]['full_tag'] 					= '<img src="uploads/' . SITE_REF . '/files/' . $file->filename . '"/>';
-					$out[$c]['absolute_tag'] 				= '<img src="' . base_url('uploads/' . SITE_REF . '/files/' . $file->filename) . '"/>';
-					
-					$out[$c]['thumb_full_tag'] 				= '<img src="files/thumb/' . $file->id. '/200"/>';
-					$out[$c]['thumb_absolute_tag'] 			= '<img src="' . base_url('files/thumb/' . $file->id. '/200') . '"/>';
-					
-					$out[$c]['sort_value'] 					= 'sort_'.$file->sort;
-					$out[$c]['count_value'] 				= 'count_'.$c;
-					
-					$out[$c]['count']		 				= $c;
-					$out[$c]['sort']		 				= $file->sort;
-
-					// Increment
-					$c++;
+					$out[$i] = (array) $file;
+					$out[$i]['i'] = $i +1;
 				}
 				
 				return $out;
@@ -524,35 +485,10 @@ class Field_folder
 			}
 			
 			$c = 0;
-			foreach($files as $file)
+			foreach($files as $i=>$file)
 			{
-				// Copy
-				$out[$c] = (array) $file;
-				
-				// Add some nice helpers
-				$out[$c]['full_path'] 					= 'uploads/' . SITE_REF . '/files/' . $file->filename;
-				$out[$c]['absolute_path'] 				= base_url().'uploads/' . SITE_REF . '/files/' . $file->filename;
-
-				$out[$c]['csv_full_path'] 				= ($c==0?'':',').'uploads/' . SITE_REF . '/files/' . $file->filename;
-				$out[$c]['csv_absolute_path'] 			= ($c==0?'':',').base_url('uploads/' . SITE_REF . '/files/' . $file->filename);
-				
-				$out[$c]['thumb_full_path'] 			= 'files/thumb/' . $file->id;
-				$out[$c]['thumb_absolute_path'] 		= base_url('files/thumb/' . $file->id);
-
-				$out[$c]['full_tag'] 					= '<img src="uploads/' . SITE_REF . '/files/' . $file->filename . '"/>';
-				$out[$c]['absolute_tag'] 				= '<img src="' . base_url('uploads/' . SITE_REF . '/files/' . $file->filename) . '"/>';
-				
-				$out[$c]['thumb_full_tag'] 				= '<img src="files/thumb/' . $file->id. '/200"/>';
-				$out[$c]['thumb_absolute_tag'] 			= '<img src="' . base_url('files/thumb/' . $file->id. '/200') . '"/>';
-				
-				$out[$c]['sort_value'] 					= 'sort_'.$file->sort;
-				$out[$c]['count_value'] 				= 'count_'.$c;
-
-				$out[$c]['count']		 				= $c;
-				$out[$c]['sort']		 				= $file->sort;
-
-				// Increment
-				$c++;
+				$out[$i] = (array) $file;
+				$out[$i]['i'] = $i +1;
 			}
 			
 			return $out;
@@ -586,8 +522,11 @@ class Field_folder
 			// ID?
 			$folder = $entry->$slug;
 
-			// Clear the folder
-			$this->_destroy_folder($folder);
+			// Clear the folder.. but not the root you fuck up
+			if ( $folder > 0 )
+			{
+				$this->_destroy_folder($folder);
+			}
 		}
 	}
 
